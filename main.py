@@ -75,6 +75,8 @@ def get_data(data_dir, source, target, height, width, batch_size, re=0, workers=
 
 
 def main(args):
+    if args.adjustment == 'class-wise':
+        args.n_splits = 1
     # For fast training.
     cudnn.benchmark = True
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpus
@@ -97,7 +99,7 @@ def main(args):
 
     # Create model
     model = models.create(args.arch, num_features=args.features,
-                          dropout=args.dropout, num_classes=num_classes, n_splits=args.n_splits, batch_size=args.batch_size)
+                          dropout=args.dropout, num_classes=num_classes, n_splits=args.n_splits, batch_size=args.batch_size, adjustment=args.adjustment)
 
     # Invariance learning model
     num_tgt = len(dataset.target_train)
@@ -144,7 +146,7 @@ def main(args):
                                 nesterov=True)
 
     # Trainer
-    trainer = Trainer(model, model_inv, lmd=args.lmd, n_splits=args.n_splits, adjustment=args.adjustment)
+    trainer = Trainer(model, model_inv, lmd=args.lmd, n_splits=args.n_splits, adjustment=args.adjustment, num_classes=num_classes, num_features=args.features)
 
     # Schedule learning rate
     def adjust_lr(epoch):

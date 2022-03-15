@@ -87,7 +87,7 @@ class ResNet(nn.Module):
                     for i in range(self.n_splits):
                         sum += self.num_splits
                         if sum <= self.num_features:
-                            fc = nn.Linear(self.num_features + self.num_splits, self.num_classes)
+                            fc = nn.Linear(self.num_splits, self.num_classes)
                         else:
                             sum = self.num_features - sum + self.num_splits
                             fc = nn.Linear(self.num_features + sum, self.num_classes)
@@ -108,7 +108,7 @@ class ResNet(nn.Module):
                     for i in range(self.n_splits):
                         sum += self.num_splits
                         if sum <= self.num_features:
-                            fc = nn.Linear(self.num_features + self.num_splits * 2, self.num_classes)
+                            fc = nn.Linear(self.num_splits * 2, self.num_classes)
                         else:
                             sum = self.num_features - sum + self.num_splits
                             fc = nn.Linear(self.num_features + sum * 2, self.num_classes)
@@ -168,7 +168,7 @@ class ResNet(nn.Module):
             # splits_precs[n_splits, 128, 702]
             splits_precs = []
             for i in range(self.n_splits):
-                prec = self.feat_wise_classifiers[i](torch.cat([x, x[:, self.num_splits * i : self.num_splits * (i + 1)]], dim=1))
+                prec = self.feat_wise_classifiers[i](x[:, self.num_splits * i : self.num_splits * (i + 1)])
                 splits_precs.append(prec)
             # output[n_splits,128,702]
             return torch.stack(splits_precs)
@@ -182,7 +182,7 @@ class ResNet(nn.Module):
             # splits_precs[n_splits, 128, 702]
             splits_precs = []
             for i in range(self.n_splits):
-                prec = self.combined_classifiers[i](torch.cat([x, x[:, self.num_splits * i: self.num_splits * (i + 1)], cwa[:, self.num_splits * i: self.num_splits * (i + 1)]], dim=1))
+                prec = self.combined_classifiers[i](torch.cat([x[:, self.num_splits * i: self.num_splits * (i + 1)], cwa[:, self.num_splits * i: self.num_splits * (i + 1)]], dim=1))
                 splits_precs.append(prec)
             # output[n_splits,128,702]
             return torch.stack(splits_precs)

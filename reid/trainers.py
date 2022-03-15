@@ -14,7 +14,7 @@ import torch.nn.functional as F
 
 
 class Trainer(object):
-    def __init__(self, model, model_inv, lmd=0.3, n_splits=10, adjustment='feature-wise'):
+    def __init__(self, model, model_inv, lmd=0.3, n_splits=10, adjustment='feature-wise', num_classes=0, num_features=0):
         super(Trainer, self).__init__()
         self.n_splits = n_splits
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -23,6 +23,22 @@ class Trainer(object):
         self.pid_criterion = torch.nn.CrossEntropyLoss().to(self.device)
         self.lmd = lmd
         self.adjustment = adjustment
+        self.num_classes = num_classes
+        self.num_features = num_features
+        self.mean_feat = None
+
+    def get_mean_feat(self, data_loader):
+        with torch.no_grad():
+            self.mean_feat = torch.zeros(self.num_classes, self.num_features).cuda()
+            count = torch.zeros(self.num_classes).cuda()
+            for i, inputs in enumerate(data_loader):
+                inputs, pids = self._parse_data(inputs)
+                feats = self.model(inputs, 'mean_feat')
+                for j in range(feats.size(0)):
+                    count[pids[j]] = count[pids[j]] + 1
+                    self.mean_feat[pids[j]] = self.mean_feat[pids[j]] + feats[j]
+            # mean_feat[702,4096]
+            self.mean_feat = self.mean_feat / count.view(-1, 1)
 
     def train(self, epoch, data_loader, target_train_loader, optimizer, print_freq=1):
         self.set_model_train()
@@ -37,7 +53,7 @@ class Trainer(object):
         # Target iter
         target_iter = iter(target_train_loader)
         if self.adjustment == 'class-wise' or self.adjustment == 'Combined':
-            self.model.get_mean_feat(data_loader)
+            self.get_mean_feat(data_loader)
 
         # Train
         for i, inputs in enumerate(data_loader):
@@ -54,19 +70,24 @@ class Trainer(object):
                 inputs_target = next(target_iter)
             inputs_target, index_target = self._parse_tgt_data(inputs_target)
 
+            optimizer.zero_grad()
             # Source pid loss
-            outputs = self.model(inputs, self.adjustment)
+            outputs = self.model(inputs, self.adjustment, mean_feat=self.mean_feat)
             # print("outputs{}".format(self.n_splits))
             source_pid_loss = 0
             prec1 = 0
             if self.adjustment == 'feature-wise' or self.adjustment == 'Combined':
                 for j in range(self.n_splits):
-                    source_pid_loss = source_pid_loss + self.pid_criterion(outputs[j], pids)
+                    splits_loss = (1 - self.lmd) * self.pid_criterion(outputs[j], pids)
+                    splits_loss.backward(retain_graph=True)
+                    source_pid_loss = source_pid_loss + splits_loss
+                source_pid_loss = source_pid_loss / self.n_splits
                 sum_prec = torch.sum(outputs, dim=0) / self.n_splits
                 prec, = accuracy(sum_prec.data, pids.data)
                 prec1 = prec[0]
             else:
-                source_pid_loss = self.pid_criterion(outputs, pids)
+                source_pid_loss = (1 - self.lmd) * self.pid_criterion(outputs, pids)
+                source_pid_loss.backward(retain_graph=True)
                 prec, = accuracy(outputs.data, pids.data)
                 prec1 = prec[0]
 
@@ -76,7 +97,8 @@ class Trainer(object):
 
             loss_un = self.model_inv(outputs, index_target, epoch=epoch)
 
-            loss = (1 - self.lmd) * source_pid_loss + self.lmd * loss_un
+            # loss = (1 - self.lmd) * source_pid_loss.item() + self.lmd * loss_un
+            loss = self.lmd * loss_un
 
             loss_print = {}
             loss_print['s_pid_loss'] = source_pid_loss.item()
@@ -85,8 +107,7 @@ class Trainer(object):
             losses.update(loss.item(), outputs.size(0))
             precisions.update(prec1, outputs.size(0))
 
-            optimizer.zero_grad()
-            loss.backward()
+            loss.backward(retain_graph=True)
             optimizer.step()
 
             batch_time.update(time.time() - end)

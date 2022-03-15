@@ -50,6 +50,7 @@ class InvNet(nn.Module):
     def forward(self, inputs, targets, epoch=None):
 
         alpha = self.alpha * epoch
+        # sim[128,12936]
         sim = ExemplarMemory.apply(inputs, targets, self.em, alpha)
         em = self.em
 
@@ -57,7 +58,7 @@ class InvNet(nn.Module):
         step = feats // self.n_splits
         if step * self.n_splits < feats:
             step += 1
-        sims = torch.Tensor(self.n_splits, len(inputs), len(sim[0])).to(self.device)
+        sims = torch.Tensor(self.n_splits, inputs.size(0), sim.size(1)).to(self.device)
         for i in range(self.n_splits):
             l = int(step * i)
             r = int(step * (i + 1))
@@ -74,44 +75,35 @@ class InvNet(nn.Module):
         return loss
 
     def smooth_loss(self, inputs, sims, targets):
+        # target[n_splits, 128, 12936]
         targets = self.smooth_hot(sims.detach().clone(), targets.detach().clone(), self.knn)
+        # outputs[128, 12936]
         outputs = F.log_softmax(inputs, dim=1)
-        loss = - (targets * outputs)
-        loss = loss.sum(dim=1)
-        loss = loss.mean(dim=0)
+        loss = 0
+        for i in range(self.n_splits):
+            splits_loss = - (targets[i] * outputs)
+            splits_loss = splits_loss.sum(dim=1)
+            splits_loss = splits_loss.mean(dim=0)
+            loss = loss + splits_loss
+        loss = loss / self.n_splits
         return loss
 
-    # inputs[n_splits, 128, 12936] new_sims[n_splits, 128, 12936] targets[128]
+    # inputs[n_splits, 128, 12936] targets_onehots[n_splits, 128, 12936] targets[128]
     def smooth_hot(self, inputs, targets, k=6):
         # Sort
         _, index_sorted = torch.sort(inputs, dim=2, descending=True)
-
-
-        # new_sims = torch.zeros(inputs[0].size()).to(self.device)
-        # a, b, c = index_sorted.size()
-        # rank_point = torch.ones(c, 1).mm(torch.div(torch.ones(1, c), torch.range(1, c))).to(self.device)
-        # print("rank_point:{}".format(rank_point.size()))
-        # for i in range(a):
-            # new_sims.scatter_add_(1, index_sorted[i, :, :], inputs[i, :, :])
-            # for j in range(b):
-            #     for t in range(c):
-            #         new_sims[j][index_sorted[i][j][t]] += 1 / (t + 1)
-        # print("new_sims[{}]".format(new_sims.size()))
-        new_sims = torch.zeros(inputs[0].size()).to(self.device)
-        a, b, c = index_sorted.size()
-        for i in range(b):
-            new_sims[i] = torch.tensor(torch.tensor(inputs[:, i, targets[i]]).t().reshape(1, -1)).mm(torch.tensor(inputs[:, i, :]))
-        _, new_index_sorted = torch.sort(new_sims, dim=1, descending=True)
-        # print("new_index_sorted[{}]".format(new_index_sorted.size()))
-        ones_mat = torch.ones(targets.size(0), k).to(self.device)
+        targets_onehots = []
         targets = torch.unsqueeze(targets, 1)
-        targets_onehot = torch.zeros(new_sims.size()).to(self.device)
+        for i in range(self.n_splits):
+            targets_onehot = torch.zeros(inputs[0].size()).to(self.device)
 
-        weights = F.softmax(ones_mat, dim=1)
-        targets_onehot.scatter_(1, new_index_sorted[:, 0:k], ones_mat * weights)
-        targets_onehot.scatter_(1, targets, float(1))
+            ones_mat = torch.ones(targets.size(0), k).to(self.device)
+            weights = F.softmax(ones_mat, dim=1)
+            targets_onehot.scatter_(1, index_sorted[i, :, 0:k], ones_mat * weights)
+            targets_onehot.scatter_(1, targets, float(1))
+            targets_onehots.append(targets_onehot)
 
-        return targets_onehot
+        return torch.stack(targets_onehots)
 
 
 
