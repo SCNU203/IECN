@@ -106,4 +106,3 @@ class InvNet(nn.Module):
         return torch.stack(targets_onehots)
 
 
-
