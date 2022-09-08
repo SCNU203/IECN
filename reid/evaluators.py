@@ -10,6 +10,7 @@ from .evaluation_metrics import cmc, mean_ap, map_cmc
 from .utils.meters import AverageMeter
 
 from torch.autograd import Variable
+from tqdm import  tqdm
 from .utils import to_torch
 from .utils import to_numpy
 import os.path as osp
@@ -38,7 +39,8 @@ def extract_features(model, data_loader, print_freq=1, output_feature=None):
     labels = OrderedDict()
 
     end = time.time()
-    for i, (imgs, fnames, pids, _) in enumerate(data_loader):
+    pbar = tqdm(data_loader)
+    for i, (imgs, fnames, pids, _) in enumerate(pbar):
         data_time.update(time.time() - end)
 
         outputs = extract_cnn_feature(model, imgs, output_feature)
@@ -50,12 +52,16 @@ def extract_features(model, data_loader, print_freq=1, output_feature=None):
         end = time.time()
 
         if (i + 1) % print_freq == 0:
-            print('Extract Features: [{}/{}]\t'
-                  'Time {:.3f} ({:.3f})\t'
-                  'Data {:.3f} ({:.3f})\t'
-                  .format(i + 1, len(data_loader),
+            log = 'Extract Features: [{}/{}] Time {:.3f} ({:.3f}) Data {:.3f} ({:.3f})'.format(i + 1, len(data_loader),
                           batch_time.val, batch_time.avg,
-                          data_time.val, data_time.avg))
+                          data_time.val, data_time.avg)
+            pbar.set_description("%s" % (log))
+            # print('Extract Features: [{}]\t'
+            #       'Time {:.3f} ({:.3f})\t'
+            #       'Data {:.3f} ({:.3f})\t'
+            #       .format(len(data_loader),
+            #               batch_time.val, batch_time.avg,
+            #               data_time.val, data_time.avg))
 
     return features, labels
 
@@ -70,7 +76,7 @@ def pairwise_distance(query_features, gallery_features, query=None, gallery=None
 
     dist = torch.pow(x, 2).sum(dim=1, keepdim=True).expand(m, n) + \
            torch.pow(y, 2).sum(dim=1, keepdim=True).expand(n, m).t()
-    dist.addmm_(1, -2, x, y.t())
+    dist.addmm_(x, y.t(), beta=1, alpha=-2)
     # We use clamp to keep numerical stability
     dist = torch.clamp(dist, 1e-8, np.inf)
     return dist

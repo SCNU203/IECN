@@ -38,17 +38,23 @@
 ### Training and test domain adaptation model for person re-ID
 
   ```Shell
-  # For Duke to Market-1501
-  python main.py -s duke -t market --logs-dir logs/duke2market-ECN
-  
-  # For Market-1501 to Duke
-  python main.py -s market -t duke --logs-dir logs/market2duke-ECN
-  
-  # For Market-1501 to MSMT17
-  python main.py -s market -t msmt17 --logs-dir logs/market2msmt17-ECN --re 0
-  
-  # For Duke to MSMT17
-  python main.py -s duke -t msmt17 --logs-dir logs/duke2msmt17-ECN --re 0
+# feature-wise
+python adjustment_main.py -s duke -t market --logs-dir logs/duke2market-ECN --adjustment feature-wise --height 384 --features 4096 --lmd 0.5 --gpus 0 --n_splits 8 --core 10
+python adjustment_main.py -s market -t duke --logs-dir logs/market2duke-ECN --adjustment feature-wise --height 384 --features 4096 --lmd 0.5 --gpus 0 --n_splits 8 --core 10
+python adjustment_main.py -s market -t msmt17 --logs-dir logs/market2msmt17-ECN --re 0 --adjustment feature-wise --height 384 --features 4096 --lmd 0.5 --gpus 0 --n_splits 8 --core 10
+python adjustment_main.py -s duke -t msmt17 --logs-dir logs/duke2msmt17-ECN --re 0 --adjustment feature-wise --height 384 --features 4096 --lmd 0.5 --gpus 0 --n_splits 8 --core 10
+
+# class-wise
+python adjustment_main.py -s duke -t market --logs-dir logs/duke2market-ECN --adjustment class-wise --height 384 --features 4096 --lmd 0.3 --gpus 0 --core 10
+python adjustment_main.py -s market -t duke --logs-dir logs/market2duke-ECN --adjustment class-wise --height 384 --features 4096 --lmd 0.3 --gpus 0 --core 10
+python adjustment_main.py -s market -t msmt17 --logs-dir logs/market2msmt17-ECN --re 0 --adjustment class-wise --height 384 --features 4096 --lmd 0.3 --gpus 0 --core 10
+python adjustment_main.py -s duke -t msmt17 --logs-dir logs/duke2msmt17-ECN --re 0 --adjustment class-wise --height 384 --features 4096 --lmd 0.3 --gpus 0 --core 10
+
+# Combined
+python adjustment_main.py -s duke -t market --logs-dir logs/duke2market-ECN --adjustment Combined  --height 384 --features 4096 --lmd 0.5 --gpus 0 --n_splits 8 --core 10
+python adjustment_main.py -s market -t duke --logs-dir logs/market2duke-ECN --adjustment Combined  --height 384 --features 4096 --lmd 0.5 --gpus 0 --n_splits 8 --core 10
+python adjustment_main.py -s market -t msmt17 --logs-dir logs/market2msmt17-ECN --re 0 --adjustment Combined  --height 384 --features 4096 --lmd 0.5 --gpus 0 --n_splits 8 --core 10
+python adjustment_main.py -s duke -t msmt17 --logs-dir logs/duke2msmt17-ECN --re 0 --adjustment Combined  --height 384 --features 4096 --lmd 0.5 --gpus 0 --n_splits 8 --core 10
   ```
 
 

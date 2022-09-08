@@ -1,11 +1,14 @@
 from __future__ import print_function, absolute_import
 import argparse
+import datetime
 import os
 import os.path as osp
+import time
 
 import numpy as np
 import sys
 import torch
+from tqdm import tqdm
 from torch import nn
 from torch.backends import cudnn
 from torch.utils.data import DataLoader
@@ -75,16 +78,28 @@ def get_data(data_dir, source, target, height, width, batch_size, re=0, workers=
 
 
 def main(args):
+    if args.adjustment == 'feature-wise':
+        args.arch = 'ft' + args.arch
     if args.adjustment == 'class-wise':
+        args.arch = 'cl' + args.arch
         args.n_splits = 1
+    if args.adjustment == 'Combined':
+        args.arch = 'cb' + args.arch
+
     # For fast training.
     cudnn.benchmark = True
-    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpus
+    if args.gpus is not None:
+        os.environ["CUDA_VISIBLE_DEVICES"] = args.gpus
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+    # print(torch.cuda.is_available())
+    # cord = torch.randn(268435456 * args.core).to(device)
+
     # Redirect print to both console and log file
+    log_name = "{}_{}2{}_alpha{}_beta{}_knn{}_lmd{}_nsplits{}_features{}_".format(args.adjustment, args.source, args.target, args.inv_alpha, args.inv_beta, args.knn, args.lmd, args.n_splits, args.features)
+    log_name = log_name + "date{}.txt".format(time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime()))
     if not args.evaluate:
-        sys.stdout = Logger(osp.join(args.logs_dir, 'log.txt'))
+        sys.stdout = Logger(osp.join(args.logs_dir, log_name))
     print('log_dir=', args.logs_dir)
 
     # Print logs
@@ -105,7 +120,7 @@ def main(args):
     num_tgt = len(dataset.target_train)
     model_inv = InvNet(args.features, num_tgt,
                         beta=args.inv_beta, knn=args.knn,
-                        alpha=args.inv_alpha)
+                        alpha=args.inv_alpha, n_splits=args.n_splits)
 
     # Load from checkpoint
     start_epoch = 0
@@ -166,19 +181,20 @@ def main(args):
             'epoch': epoch + 1,
         }, fpath=osp.join(args.logs_dir, 'checkpoint.pth.tar'))
 
-        print('\n * Finished epoch {:3d} \n'.
-              format(epoch))
-        if epoch % 10 == 0:
+        # print('\n * Finished epoch {:3d} \n'.
+        #       format(epoch))
+        # if epoch % 10 == 0 and epoch != 0:
+        if epoch >= args.epochs - args.core:
             print('Test in epoch', epoch, ':')
             evaluator = Evaluator(model)
             evaluator.evaluate(query_loader, gallery_loader, dataset.query,
                                dataset.gallery, args.output_feature)
 
     # Final test
-    print('Test with best model:')
-    evaluator = Evaluator(model)
-    evaluator.evaluate(query_loader, gallery_loader, dataset.query,
-                       dataset.gallery, args.output_feature)
+    # print('Test with best model:')
+    # evaluator = Evaluator(model)
+    # evaluator.evaluate(query_loader, gallery_loader, dataset.query,
+    #                    dataset.gallery, args.output_feature)
 
 
 if __name__ == '__main__':
@@ -190,18 +206,18 @@ if __name__ == '__main__':
     parser.add_argument('-t', '--target', type=str, default='market',
                         choices=['market', 'duke', 'msmt17'])
 
-    parser.add_argument('--gpus', type=str, default='0', help='gpus')
+    parser.add_argument('--gpus', type=str, help='gpus')
     # imgs setting
     parser.add_argument('-b', '--batch-size', type=int, default=128)
     parser.add_argument('-j', '--workers', type=int, default=8)
-    parser.add_argument('--height', type=int, default=256,
+    parser.add_argument('--height', type=int, default=384,
                         help="input height, default: 256")
     parser.add_argument('--width', type=int, default=128,
                         help="input width, default: 128")
     # model
     parser.add_argument('-a', '--arch', type=str, default='resnet50',
                         choices=models.names())
-    parser.add_argument('--features', type=int, default=4096)
+    parser.add_argument('--features', type=int, default=2048)
     parser.add_argument('--dropout', type=float, default=0.5)
     # optimizer
     parser.add_argument('--lr', type=float, default=0.1,
@@ -234,11 +250,12 @@ if __name__ == '__main__':
                         help='The temperature in invariance learning')
     parser.add_argument('--knn', default=6, type=int,
                         help='number of KNN for neighborhood invariance')
-    parser.add_argument('--lmd', type=float, default=0.3,
+    parser.add_argument('--lmd', type=float, default=0.8,
                         help='weight controls the importance of the source loss and the target loss.')
-    parser.add_argument('--n_splits', default=10, type=int,
+    parser.add_argument('--n_splits', default=8, type=int,
                         help='把 feature 分成 n_split 层')
     parser.add_argument('--adjustment', default='feature-wise', type=str,
                         help='调整方式')
+    parser.add_argument('--core', default=0, type=int)
     args = parser.parse_args()
     main(args)

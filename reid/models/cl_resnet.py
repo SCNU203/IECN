@@ -8,11 +8,11 @@ import torchvision
 from reid.lib.normalize import Normalize
 
 
-__all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
-           'resnet152']
+__all__ = ['ClResNet', 'clresnet18', 'clresnet34', 'clresnet50', 'clresnet101',
+           'clresnet152']
 
 
-class ResNet(nn.Module):
+class ClResNet(nn.Module):
     __factory = {
         18: torchvision.models.resnet18,
         34: torchvision.models.resnet34,
@@ -23,22 +23,18 @@ class ResNet(nn.Module):
 
     def __init__(self, depth, pretrained=True, cut_at_pooling=False,
                  num_features=0, norm=False, dropout=0, num_classes=0, num_triplet_features=0, n_splits=10, batch_size=128, adjustment=None):
-        super(ResNet, self).__init__()
+        super(ClResNet, self).__init__()
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.depth = depth
         self.pretrained = pretrained
         self.cut_at_pooling = cut_at_pooling
-        self.n_splits = n_splits
-        self.num_splits = num_classes // self.n_splits
         self.batch_size = batch_size
         self.adjustment = adjustment
-        if self.num_splits * self.n_splits != num_features:
-            self.num_splits += 1
 
         # Construct base (pretrained) resnet
-        if depth not in ResNet.__factory:
+        if depth not in ClResNet.__factory:
             raise KeyError("Unsupported depth:", depth)
-        self.base = ResNet.__factory[depth](pretrained=pretrained)
+        self.base = ClResNet.__factory[depth](pretrained=pretrained)
 
         # Fix layers [conv1 ~ layer2]
         fixed_names = []
@@ -79,43 +75,15 @@ class ResNet(nn.Module):
                 self.classifier = nn.Linear(self.num_features, self.num_classes)
                 init.normal_(self.classifier.weight, std=0.001)
                 init.constant_(self.classifier.bias, 0)
-
-                # feature-wise Adjustment
-                if self.adjustment == 'feature-wise':
-                    self.feat_wise_classifiers = nn.ModuleList()
-                    sum = 0
-                    for i in range(self.n_splits):
-                        sum += self.num_splits
-                        if sum <= self.num_features:
-                            fc = nn.Linear(self.num_splits, self.num_classes)
-                        else:
-                            sum = self.num_features - sum + self.num_splits
-                            fc = nn.Linear(self.num_features + sum, self.num_classes)
-                        init.normal_(fc.weight, std=0.001)
-                        init.constant_(fc.bias, 0)
-                        self.feat_wise_classifiers.append(fc)
+                self.converter = nn.Linear(self.num_features, self.num_classes)
+                init.normal_(self.converter.weight, std=0.001)
+                init.constant_(self.converter.bias, 0)
 
                 # class-wise Adjustment
-                if self.adjustment == 'class-wise':
-                    self.class_wise_classifier = nn.Linear(self.num_features * 2, self.num_classes)
-                    init.normal_(self.class_wise_classifier.weight, std=0.001)
-                    init.constant_(self.class_wise_classifier.bias, 0)
-
-                # Combined Adjustment
-                if self.adjustment == 'Combined':
-                    self.combined_classifiers = nn.ModuleList()
-                    sum = 0
-                    for i in range(self.n_splits):
-                        sum += self.num_splits
-                        if sum <= self.num_features:
-                            fc = nn.Linear(self.num_splits * 2, self.num_classes)
-                        else:
-                            sum = self.num_features - sum + self.num_splits
-                            fc = nn.Linear(self.num_features + sum * 2, self.num_classes)
-                        init.normal_(fc.weight, std=0.001)
-                        init.constant_(fc.bias, 0)
-                        self.combined_classifiers.append(fc)
-
+                # if self.adjustment == 'class-wise':
+                self.class_wise_classifier = nn.Linear(self.num_features * 2, self.num_classes)
+                init.normal_(self.class_wise_classifier.weight, std=0.001)
+                init.constant_(self.class_wise_classifier.bias, 0)
 
         if not self.pretrained:
             self.reset_params()
@@ -144,51 +112,27 @@ class ResNet(nn.Module):
             tgt_feat = self.drop(tgt_feat)
             if output_feature == 'tgt_feat':
                 return tgt_feat
+        if output_feature == 'mean_feat':
+            x = F.relu(x)
+            return torch.stack([x])
         if self.norm:
             x = F.normalize(x)
         elif self.has_embedding:
             x = F.relu(x)
         if self.dropout > 0:
             x = self.drop(x)
-        if output_feature == 'mean_feat':
-            return x
 
         # class-wise Adjustment
         if output_feature == 'class-wise':
-            # pre_class[128,702]
-            pre_class = self.classifier(x)
-            # cwa[128,4096]
-            cwa = pre_class.mm(mean_feat) / self.num_classes
+            mean_feat = self.drop(mean_feat[0])
+            pre_class = F.softmax(self.classifier(x), dim=1)
+            cwa = pre_class.mm(mean_feat)
             output = self.class_wise_classifier(torch.cat([x, cwa], dim=1))
-            # output[128,702]
             return output
 
-        # feature-wise Adjustment
-        if output_feature == 'feature-wise':
-            # splits_precs[n_splits, 128, 702]
-            splits_precs = []
-            for i in range(self.n_splits):
-                prec = self.feat_wise_classifiers[i](x[:, self.num_splits * i : self.num_splits * (i + 1)])
-                splits_precs.append(prec)
-            # output[n_splits,128,702]
-            return torch.stack(splits_precs)
-
-        # Combined Adjustment
-        if output_feature == 'Combined':
-            # pre_class[128,702]
-            pre_class = self.classifier(x)
-            # cwa[128,4096]
-            cwa = pre_class.mm(mean_feat) / self.num_classes
-            # splits_precs[n_splits, 128, 702]
-            splits_precs = []
-            for i in range(self.n_splits):
-                prec = self.combined_classifiers[i](torch.cat([x[:, self.num_splits * i: self.num_splits * (i + 1)], cwa[:, self.num_splits * i: self.num_splits * (i + 1)]], dim=1))
-                splits_precs.append(prec)
-            # output[n_splits,128,702]
-            return torch.stack(splits_precs)
-
         if self.num_classes > 0:
-            x = self.classifier(x)
+            cwa = torch.zeros(x.size()).cuda()
+            x = self.class_wise_classifier(torch.cat([x, cwa], dim=1))
         return x
 
     def reset_params(self):
@@ -206,21 +150,21 @@ class ResNet(nn.Module):
                     init.constant(m.bias, 0)
 
 
-def resnet18(**kwargs):
-    return ResNet(18, **kwargs)
+def clresnet18(**kwargs):
+    return ClResNet(18, **kwargs)
 
 
-def resnet34(**kwargs):
-    return ResNet(34, **kwargs)
+def clresnet34(**kwargs):
+    return ClResNet(34, **kwargs)
 
 
-def resnet50(**kwargs):
-    return ResNet(50, **kwargs)
+def clresnet50(**kwargs):
+    return ClResNet(50, **kwargs)
 
 
-def resnet101(**kwargs):
-    return ResNet(101, **kwargs)
+def clresnet101(**kwargs):
+    return ClResNet(101, **kwargs)
 
 
-def resnet152(**kwargs):
-    return ResNet(152, **kwargs)
+def clresnet152(**kwargs):
+    return ClResNet(152, **kwargs)
