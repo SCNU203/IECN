@@ -15,7 +15,7 @@ import torch.nn.functional as F
 
 
 class Trainer(object):
-    def __init__(self, model, model_inv, lmd=0.3, n_splits=10, adjustment='feature-wise', num_classes=0, num_features=0):
+    def __init__(self, model, model_inv, lmd=0.3, n_splits=10, adjustment='feature-wise', num_classes=0, num_features=0, E=False):
         super(Trainer, self).__init__()
         self.n_splits = n_splits
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -27,6 +27,7 @@ class Trainer(object):
         self.num_classes = num_classes
         self.num_features = num_features
         self.mean_feat = None
+        self.E = E
 
     def get_all_mean_feat(self, data_loader):
         with torch.no_grad():
@@ -134,19 +135,27 @@ class Trainer(object):
 
 
             # Target invariance loss
-            outputs = self.model(inputs_target, 'tgt_feat')
+            if not self.E:
+                outputs = self.model(inputs_target, 'tgt_feat')
+                loss_un = self.model_inv(outputs, index_target, epoch=epoch)
+            else:
+                loss_un = torch.tensor([0])
 
-            loss_un = self.model_inv(outputs, index_target, epoch=epoch)
-
-            loss = (1 - self.lmd) * source_pid_loss + self.lmd * loss_un
-            # loss = source_pid_loss + loss_un
+            if not self.E:
+                loss = (1 - self.lmd) * source_pid_loss + self.lmd * loss_un
+            else:
+                loss = (1 - self.lmd) * source_pid_loss
 
             loss_print = {}
             loss_print['s_pid_loss'] = source_pid_loss.item()
             loss_print['t_un_loss'] = loss_un.item()
 
-            losses.update(loss.item(), outputs.size(0))
-            precisions.update(prec1, outputs.size(0))
+            if not self.E:
+                losses.update(loss.item(), outputs.size(0))
+                precisions.update(prec1, outputs.size(0))
+            else:
+                losses.update(loss.item(), inputs_target.size(0))
+                precisions.update(prec1, inputs_target.size(0))
 
             optimizer.zero_grad()
             loss.backward()

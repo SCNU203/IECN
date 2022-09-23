@@ -24,7 +24,7 @@ from reid.utils.serialization import load_checkpoint, save_checkpoint
 from reid.loss import InvNet
 
 
-def get_data(data_dir, source, target, height, width, batch_size, re=0, workers=8):
+def get_data(data_dir, source, target, height, width, batch_size, re=0, workers=8, C=False):
 
     dataset = DA(data_dir, source, target)
 
@@ -53,14 +53,21 @@ def get_data(data_dir, source, target, height, width, batch_size, re=0, workers=
         batch_size=batch_size, num_workers=workers,
         shuffle=True, pin_memory=True, drop_last=True)
 
-    target_train_loader = DataLoader(
-        UnsupervisedCamStylePreprocessor(dataset.target_train,
-                                         root=osp.join(dataset.target_images_dir, dataset.target_train_path),
-                                         camstyle_root=osp.join(dataset.target_images_dir,
-                                                                dataset.target_train_camstyle_path),
-                                         num_cam=dataset.target_num_cam, transform=train_transformer),
-        batch_size=batch_size, num_workers=workers,
-        shuffle=True, pin_memory=True, drop_last=True)
+    if not C:
+        target_train_loader = DataLoader(
+            UnsupervisedCamStylePreprocessor(dataset.target_train,
+                                             root=osp.join(dataset.target_images_dir, dataset.target_train_path),
+                                             camstyle_root=osp.join(dataset.target_images_dir,
+                                                                    dataset.target_train_camstyle_path),
+                                             num_cam=dataset.target_num_cam, transform=train_transformer),
+            batch_size=batch_size, num_workers=workers,
+            shuffle=True, pin_memory=True, drop_last=True)
+    else:
+        target_train_loader = DataLoader(
+            Preprocessor(dataset.target_train,
+                         root=osp.join(dataset.target_images_dir, dataset.target_train_path), transform=train_transformer),
+            batch_size=batch_size, num_workers=workers,
+            shuffle=True, pin_memory=True, drop_last=True)
 
     query_loader = DataLoader(
         Preprocessor(dataset.query,
@@ -110,7 +117,7 @@ def main(args):
     query_loader, gallery_loader = get_data(args.data_dir, args.source,
                                             args.target, args.height,
                                             args.width, args.batch_size,
-                                            args.re, args.workers)
+                                            args.re, args.workers, C=args.C)
 
     # Create model
     model = models.create(args.arch, num_features=args.features,
@@ -120,7 +127,7 @@ def main(args):
     num_tgt = len(dataset.target_train)
     model_inv = InvNet(args.features, num_tgt,
                         beta=args.inv_beta, knn=args.knn,
-                        alpha=args.inv_alpha, n_splits=args.n_splits)
+                        alpha=args.inv_alpha, n_splits=args.n_splits, N=args.N)
 
     # Load from checkpoint
     start_epoch = 0
@@ -161,7 +168,7 @@ def main(args):
                                 nesterov=True)
 
     # Trainer
-    trainer = Trainer(model, model_inv, lmd=args.lmd, n_splits=args.n_splits, adjustment=args.adjustment, num_classes=num_classes, num_features=args.features)
+    trainer = Trainer(model, model_inv, lmd=args.lmd, n_splits=args.n_splits, adjustment=args.adjustment, num_classes=num_classes, num_features=args.features, E=args.E)
 
     # Schedule learning rate
     def adjust_lr(epoch):
@@ -184,7 +191,7 @@ def main(args):
         # print('\n * Finished epoch {:3d} \n'.
         #       format(epoch))
         # if epoch % 10 == 0 and epoch != 0:
-        if epoch >= args.epochs - args.core:
+        if epoch >= args.epochs - 10:
             print('Test in epoch', epoch, ':')
             evaluator = Evaluator(model)
             evaluator.evaluate(query_loader, gallery_loader, dataset.query,
@@ -256,6 +263,10 @@ if __name__ == '__main__':
                         help='把 feature 分成 n_split 层')
     parser.add_argument('--adjustment', default='feature-wise', type=str,
                         help='调整方式')
-    parser.add_argument('--core', default=0, type=int)
+
+    parser.add_argument('--E', action='store_true', default=False, help='close Exemplar-invariance')
+    parser.add_argument('--C', action='store_true', default=False, help='close Camera-invariance')
+    parser.add_argument('--N', action='store_true', default=False, help='close Neighborhood-invariance')
+
     args = parser.parse_args()
     main(args)
