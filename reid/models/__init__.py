@@ -1,16 +1,10 @@
 from __future__ import absolute_import
 
-from .resnet import *
 from .ft_resnet import *
 from .cl_resnet import *
 from .cb_resnet import *
 
 __factory = {
-    'resnet18': resnet18,
-    'resnet34': resnet34,
-    'resnet50': resnet50,
-    'resnet101': resnet101,
-    'resnet152': resnet152,
     'clresnet18': clresnet18,
     'clresnet34': clresnet34,
     'clresnet50': clresnet50,
