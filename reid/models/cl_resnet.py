@@ -75,12 +75,8 @@ class ClResNet(nn.Module):
                 self.classifier = nn.Linear(self.num_features, self.num_classes)
                 init.normal_(self.classifier.weight, std=0.001)
                 init.constant_(self.classifier.bias, 0)
-                self.converter = nn.Linear(self.num_features, self.num_classes)
-                init.normal_(self.converter.weight, std=0.001)
-                init.constant_(self.converter.bias, 0)
 
                 # class-wise Adjustment
-                # if self.adjustment == 'class-wise':
                 self.class_wise_classifier = nn.Linear(self.num_features * 2, self.num_classes)
                 init.normal_(self.class_wise_classifier.weight, std=0.001)
                 init.constant_(self.class_wise_classifier.bias, 0)

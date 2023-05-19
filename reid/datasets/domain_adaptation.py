@@ -12,20 +12,23 @@ class DA(object):
 
         # source / target image root
         self.source_images_dir = osp.join(data_dir, source)
+        self.source2_images_dir = osp.join(data_dir, 'msmt17')
         self.target_images_dir = osp.join(data_dir, target)
         # training image dir
         self.source_train_path = 'bounding_box_train'
+        self.source2_train_path = 'bounding_box_train'
         self.target_train_path = 'bounding_box_train'
         self.target_train_camstyle_path = 'bounding_box_train_camstyle'
         self.gallery_path = 'bounding_box_test'
         self.query_path = 'query'
 
-        self.source_train, self.target_train, self.query, self.gallery = [], [], [], []
-        self.num_train_ids, self.num_query_ids, self.num_gallery_ids = 0, 0, 0
+        self.source_train, self.source2_train, self.target_train, self.query, self.gallery = [], [], [], [], []
+        self.num_train_ids, self.num2_train_ids, self.num_query_ids, self.num_gallery_ids = 0, 0, 0, 0
 
         self.cam_dict = self.set_cam_dict()
         self.target_num_cam = self.cam_dict[target]
         self.source_num_cam = self.cam_dict[source]
+        self.source2_num_cam = self.cam_dict['cuhk03']
 
         self.load()
 
@@ -34,6 +37,7 @@ class DA(object):
         cam_dict['market'] = 6
         cam_dict['duke'] = 8
         cam_dict['msmt17'] = 15
+        cam_dict['cuhk03'] = 2
         return cam_dict
 
     def preprocess(self, images_dir, path, relabel=True):
@@ -67,6 +71,7 @@ class DA(object):
 
     def load(self):
         self.source_train, self.num_train_ids = self.preprocess(self.source_images_dir, self.source_train_path)
+        self.source2_train, self.num2_train_ids = self.preprocess(self.source2_images_dir, self.source2_train_path)
         self.target_train, _ = self.preprocess(self.target_images_dir, self.target_train_path)
         self.gallery, self.num_gallery_ids = self.preprocess(self.target_images_dir, self.gallery_path, False)
         self.query, self.num_query_ids = self.preprocess(self.target_images_dir, self.query_path, False)
@@ -76,6 +81,8 @@ class DA(object):
         print("  ---------------------------")
         print("  source train    | {:5d} | {:8d}"
               .format(self.num_train_ids, len(self.source_train)))
+        print("  source2 train    | {:5d} | {:8d}"
+              .format(self.num2_train_ids, len(self.source2_train)))
         print("  target train    | 'Unknown' | {:8d}"
               .format(len(self.target_train)))
         print("  query    | {:5d} | {:8d}"

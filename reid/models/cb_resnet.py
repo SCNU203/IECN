@@ -89,7 +89,6 @@ class CbResNet(nn.Module):
                 init.constant_(self.classifier.bias, 0)
 
                 # feature-wise Adjustment
-                # if self.adjustment == 'feature-wise':
                 self.feat_wise_classifiers = nn.ModuleList()
                 for _ in range(self.n_splits):
                     fc = nn.Linear(self.split_conv_out_channels, self.num_classes)
@@ -98,7 +97,6 @@ class CbResNet(nn.Module):
                     self.feat_wise_classifiers.append(fc)
 
                 # Combined Adjustment
-                # if self.adjustment == 'Combined':
                 self.combined_classifiers = nn.ModuleList()
                 for i in range(self.n_splits):
                     # self.combined_bns.append(nn.BatchNorm1d(self.split_conv_out_channels))

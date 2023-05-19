@@ -1,4 +1,4 @@
-![](imgs/framework.jpg)
+![](imgs/framework.png)
 
 
 ### Preparation
@@ -38,33 +38,33 @@
   ```Shell
   # Feature-wise Adjustment
   # For Duke to Market-1501
-  python adjustment_main.py -s duke -t market --logs-dir logs/duke2market-ECN --adjustment feature-wise --lmd 0.5 --n_splits 8
+  python adjustment_main.py -s duke -t market --logs-dir logs/duke2market-IECN --adjustment feature-wise --lmd 0.5 --n_splits 8
   # For Market-1501 to Duke
-  python adjustment_main.py -s market -t duke --logs-dir logs/market2duke-ECN --adjustment feature-wise --lmd 0.5 --n_splits 8 
+  python adjustment_main.py -s market -t duke --logs-dir logs/market2duke-IECN --adjustment feature-wise --lmd 0.5 --n_splits 8 
   # For Market-1501 to MSMT17
-  python adjustment_main.py -s market -t msmt17 --logs-dir logs/market2msmt17-ECN --re 0 --adjustment feature-wise --lmd 0.5 --n_splits 8 
+  python adjustment_main.py -s market -t msmt17 --logs-dir logs/market2msmt17-IECN --re 0 --adjustment feature-wise --lmd 0.5 --n_splits 8 
   # For Duke to MSMT17
-  python adjustment_main.py -s duke -t msmt17 --logs-dir logs/duke2msmt17-ECN --re 0 --adjustment feature-wise --lmd 0.5 --n_splits 8
+  python adjustment_main.py -s duke -t msmt17 --logs-dir logs/duke2msmt17-IECN --re 0 --adjustment feature-wise --lmd 0.5 --n_splits 8
   
   # Class-wise Adjustment
   # For Duke to Market-1501
-  python adjustment_main.py -s duke -t market --logs-dir logs/duke2market-ECN --adjustment class-wise --lmd 0.3
+  python adjustment_main.py -s duke -t market --logs-dir logs/duke2market-IECN --adjustment class-wise --lmd 0.3
   # For Market-1501 to Duke
-  python adjustment_main.py -s market -t duke --logs-dir logs/market2duke-ECN --adjustment class-wise --lmd 0.3
+  python adjustment_main.py -s market -t duke --logs-dir logs/market2duke-IECN --adjustment class-wise --lmd 0.3
   # For Market-1501 to MSMT17
-  python adjustment_main.py -s market -t msmt17 --logs-dir logs/market2msmt17-ECN --re 0 --adjustment class-wise --lmd 0.3
+  python adjustment_main.py -s market -t msmt17 --logs-dir logs/market2msmt17-IECN --re 0 --adjustment class-wise --lmd 0.3
   # For Duke to MSMT17
-  python adjustment_main.py -s duke -t msmt17 --logs-dir logs/duke2msmt17-ECN --re 0 --adjustment class-wise --lmd 0.3
+  python adjustment_main.py -s duke -t msmt17 --logs-dir logs/duke2msmt17-IECN --re 0 --adjustment class-wise --lmd 0.3
   
   # Combined Adjustment
   # For Duke to Market-1501
-  python adjustment_main.py -s duke -t market --logs-dir logs/duke2market-ECN --adjustment Combined --lmd 0.5 --n_splits 8
+  python adjustment_main.py -s duke -t market --logs-dir logs/duke2market-IECN --adjustment Combined --lmd 0.5 --n_splits 8
   # For Market-1501 to Duke
-  python adjustment_main.py -s market -t duke --logs-dir logs/market2duke-ECN --adjustment Combined --lmd 0.5 --n_splits 8
+  python adjustment_main.py -s market -t duke --logs-dir logs/market2duke-IECN --adjustment Combined --lmd 0.5 --n_splits 8
   # For Market-1501 to MSMT17
-  python adjustment_main.py -s market -t msmt17 --logs-dir logs/market2msmt17-ECN --re 0 --adjustment Combined --lmd 0.5 --n_splits 8
+  python adjustment_main.py -s market -t msmt17 --logs-dir logs/market2msmt17-IECN --re 0 --adjustment Combined --lmd 0.5 --n_splits 8
   # For Duke to MSMT17
-  python adjustment_main.py -s duke -t msmt17 --logs-dir logs/duke2msmt17-ECN --re 0 --adjustment Combined --lmd 0.5 --n_splits 8
+  python adjustment_main.py -s duke -t msmt17 --logs-dir logs/duke2msmt17-IECN --re 0 --adjustment Combined --lmd 0.5 --n_splits 8
   ```
 
 

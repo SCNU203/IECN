@@ -25,7 +25,6 @@ class FtResNet(nn.Module):
     def __init__(self, depth, pretrained=True, cut_at_pooling=False,
                  num_features=0, norm=False, dropout=0, num_classes=0, num_triplet_features=0, n_splits=10, batch_size=128, adjustment=None):
         super(FtResNet, self).__init__()
-        # split_conv_out_channels = num_features // n_splits
         split_conv_out_channels = num_features
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.depth = depth
@@ -88,9 +87,11 @@ class FtResNet(nn.Module):
                 self.classifier = nn.Linear(self.num_features, self.num_classes)
                 init.normal_(self.classifier.weight, std=0.001)
                 init.constant_(self.classifier.bias, 0)
+                self.classifier2 = nn.Linear(self.num_features, self.num2_classes)
+                init.normal_(self.classifier2.weight, std=0.001)
+                init.constant_(self.classifier2.bias, 0)
 
             # feature-wise Adjustment
-            # if self.adjustment == 'feature-wise':
             self.feat_wise_classifiers = nn.ModuleList()
             for _ in range(self.n_splits):
                 fc = nn.Linear(self.split_conv_out_channels, self.num_classes)
@@ -125,7 +126,6 @@ class FtResNet(nn.Module):
 
                 # feature-wise Adjustment
                 if output_feature == 'feature-wise':
-                    # split_feat = F.relu(split_feat)
                     split_feat = self.drop(split_feat)
                     prec = self.feat_wise_classifiers[i](split_feat)
                     splits_precs.append(prec)
@@ -145,6 +145,8 @@ class FtResNet(nn.Module):
             return x
 
         if self.has_embedding:
+            x = F.avg_pool2d(x, x.size()[2:])
+            x = x.view(x.size(0), -1)
             x = self.feat(x)
             x = self.feat_bn(x)
             tgt_feat = F.normalize(x)

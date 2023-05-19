@@ -15,7 +15,7 @@ import torch.nn.functional as F
 
 
 class Trainer(object):
-    def __init__(self, model, model_inv, lmd=0.3, n_splits=10, adjustment='feature-wise', num_classes=0, num_features=0, E=False):
+    def __init__(self, model, model_inv, lmd=0.5, n_splits=8, adjustment='feature-wise', num_classes=0, num_features=0):
         super(Trainer, self).__init__()
         self.n_splits = n_splits
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -27,7 +27,6 @@ class Trainer(object):
         self.num_classes = num_classes
         self.num_features = num_features
         self.mean_feat = None
-        self.E = E
 
     def get_all_mean_feat(self, data_loader):
         with torch.no_grad():
@@ -38,10 +37,6 @@ class Trainer(object):
                 inputs, pids = self._parse_data(inputs)
                 # feats[n_splits, 128, 2048]
                 feats = self.model(inputs, 'mean_feat')
-                # if self.adjustment != 'class-wise':
-                #     feats = self.model(inputs, 'mean_feat')
-                # else:
-                #     feats = self.model(inputs, 'class_mean')
                 for j in range(feats.size(0)):
                     for k in range(feats.size(1)):
                         if j == 0:
@@ -49,25 +44,8 @@ class Trainer(object):
                         self.all_mean_feat[j, pids[k]] = self.all_mean_feat[j, pids[k]] + feats[j, k]
 
                 pbar.set_description("Get All Mean Feat")
-            # mean_feat[n_splits, 702, 2048]
-            # count[n_splits, 702]
             self.all_mean_feat = self.all_mean_feat / count.view(1, -1, 1)
         return self.all_mean_feat
-
-    def get_mean_feat(self, inputs, pids):
-        mean_feat = torch.zeros(self.n_splits, self.num_classes, 256).cuda()
-        count = torch.zeros(self.num_classes).cuda()
-        # feats[n_splits, 128, 2048]
-        feats = self.model(inputs, 'mean_feat')
-        for j in range(feats.size(0)):
-            for k in range(feats.size(1)):
-                if j == 0:
-                    count[pids[k]] = count[pids[k]] + 1
-                mean_feat[j, pids[k]] = mean_feat[j, pids[k]] + feats[j, k]
-        # mean_feat[n_splits, 702, 2048]
-        # count[n_splits, 702]
-        mean_feat = mean_feat / count.view(1, -1, 1)
-        return mean_feat
 
     def train(self, epoch, data_loader, target_train_loader, optimizer, print_freq=1):
         self.set_model_train()
@@ -101,13 +79,6 @@ class Trainer(object):
                 inputs_target = next(target_iter)
             inputs_target, index_target = self._parse_tgt_data(inputs_target)
 
-            # Source pid loss
-            # if self.pretrain and self.adjustment == 'class-wise':
-            #     outputs = self.model(inputs)
-            # elif self.pretrain and self.adjustment == 'Combined':
-            #     outputs = self.model(inputs, 'feature-wise', pids)
-            # else:
-            #     outputs = self.model(inputs, self.adjustment, pids, mean_feats=mean_feat)
             outputs = None
             if self.adjustment == 'feature-wise':
                 outputs = self.model(inputs, self.adjustment)
@@ -123,7 +94,8 @@ class Trainer(object):
             prec1 = 0
             if self.adjustment == 'feature-wise' or self.adjustment == 'Combined':
                 for j in range(self.n_splits):
-                    source_pid_loss = source_pid_loss + self.pid_criterion(outputs[j], pids)
+                    source_pid_loss_item = self.pid_criterion(outputs[j], pids)
+                    source_pid_loss = source_pid_loss + source_pid_loss_item
                 source_pid_loss /= self.n_splits
                 sum_prec = torch.sum(F.softmax(torch.stack(outputs), dim=2), dim=0) / self.n_splits
                 prec, = accuracy(sum_prec.data, pids.data)
@@ -133,29 +105,23 @@ class Trainer(object):
                 prec, = accuracy(outputs.data, pids.data)
                 prec1 = prec[0]
 
-
             # Target invariance loss
-            if not self.E:
-                outputs = self.model(inputs_target, 'tgt_feat')
-                loss_un = self.model_inv(outputs, index_target, epoch=epoch)
+            outputs = self.model(inputs_target, 'tgt_feat')
+            alpha_loss, beta_loss = self.model_inv(outputs, index_target, epoch=epoch)
+            if epoch >= 5:
+                loss_un = alpha_loss + beta_loss
             else:
-                loss_un = torch.tensor([0])
+                loss_un = beta_loss
 
-            if not self.E:
-                loss = (1 - self.lmd) * source_pid_loss + self.lmd * loss_un
-            else:
-                loss = (1 - self.lmd) * source_pid_loss
+            loss = (1 - self.lmd) * source_pid_loss + self.lmd * loss_un
 
             loss_print = {}
             loss_print['s_pid_loss'] = source_pid_loss.item()
-            loss_print['t_un_loss'] = loss_un.item()
+            loss_print['t_alpha_loss'] = alpha_loss.item()
+            loss_print['t_beta_loss'] = beta_loss.item()
 
-            if not self.E:
-                losses.update(loss.item(), outputs.size(0))
-                precisions.update(prec1, outputs.size(0))
-            else:
-                losses.update(loss.item(), inputs_target.size(0))
-                precisions.update(prec1, inputs_target.size(0))
+            losses.update(loss.item(), outputs.size(0))
+            precisions.update(prec1, outputs.size(0))
 
             optimizer.zero_grad()
             loss.backward()
@@ -165,12 +131,6 @@ class Trainer(object):
             end = time.time()
 
             if (i + 1) % print_freq == 0:
-                # log = "Epoch: [{}][{}/{}], Time {:.3f} ({:.3f}), Data {:.3f} ({:.3f}), Loss {:.3f} ({:.3f}), Prec {:.2%} ({:.2%})" \
-                #     .format(epoch, i + 1, len(data_loader),
-                #             batch_time.val, batch_time.avg,
-                #             data_time.val, data_time.avg,
-                #             losses.val, losses.avg,
-                #             precisions.val, precisions.avg)
                 log = "Epoch: [{}], Time {:.3f}, Loss {:.3f}, Prec {:.2%}" \
                     .format(epoch,
                             batch_time.sum,
@@ -179,7 +139,6 @@ class Trainer(object):
 
                 for tag, value in loss_print.items():
                     log += ", {}: {:.4f}".format(tag, value)
-                # print(log)
                 pbar.set_description("%s"%(log))
 
         log = "Epoch: [{}], Time {:.3f} ({:.3f}), Data {:.3f} ({:.3f}), Loss {:.3f} ({:.3f}), Prec {:.2%} ({:.2%})" \

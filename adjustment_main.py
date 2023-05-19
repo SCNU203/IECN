@@ -24,7 +24,7 @@ from reid.utils.serialization import load_checkpoint, save_checkpoint
 from reid.loss import InvNet
 
 
-def get_data(data_dir, source, target, height, width, batch_size, re=0, workers=8, C=False):
+def get_data(data_dir, source, target, height, width, batch_size, re=0, workers=8):
 
     dataset = DA(data_dir, source, target)
 
@@ -32,6 +32,7 @@ def get_data(data_dir, source, target, height, width, batch_size, re=0, workers=
                              std=[0.229, 0.224, 0.225])
 
     num_classes = dataset.num_train_ids
+    num2_classes = dataset.num2_train_ids
 
     train_transformer = T.Compose([
         T.RandomSizedRectCrop(height, width),
@@ -53,21 +54,14 @@ def get_data(data_dir, source, target, height, width, batch_size, re=0, workers=
         batch_size=batch_size, num_workers=workers,
         shuffle=True, pin_memory=True, drop_last=True)
 
-    if not C:
-        target_train_loader = DataLoader(
-            UnsupervisedCamStylePreprocessor(dataset.target_train,
-                                             root=osp.join(dataset.target_images_dir, dataset.target_train_path),
-                                             camstyle_root=osp.join(dataset.target_images_dir,
-                                                                    dataset.target_train_camstyle_path),
-                                             num_cam=dataset.target_num_cam, transform=train_transformer),
-            batch_size=batch_size, num_workers=workers,
-            shuffle=True, pin_memory=True, drop_last=True)
-    else:
-        target_train_loader = DataLoader(
-            Preprocessor(dataset.target_train,
-                         root=osp.join(dataset.target_images_dir, dataset.target_train_path), transform=train_transformer),
-            batch_size=batch_size, num_workers=workers,
-            shuffle=True, pin_memory=True, drop_last=True)
+    target_train_loader = DataLoader(
+        UnsupervisedCamStylePreprocessor(dataset.target_train,
+                                         root=osp.join(dataset.target_images_dir, dataset.target_train_path),
+                                         camstyle_root=osp.join(dataset.target_images_dir,
+                                                                dataset.target_train_camstyle_path),
+                                         num_cam=dataset.target_num_cam, transform=train_transformer),
+        batch_size=batch_size, num_workers=workers,
+        shuffle=True, pin_memory=True, drop_last=True)
 
     query_loader = DataLoader(
         Preprocessor(dataset.query,
@@ -103,10 +97,8 @@ def main(args):
     # cord = torch.randn(268435456 * args.core).to(device)
 
     # Redirect print to both console and log file
-    log_name = "{}_{}2{}_alpha{}_beta{}_knn{}_lmd{}_nsplits{}_features{}_".format(args.adjustment, args.source, args.target, args.inv_alpha, args.inv_beta, args.knn, args.lmd, args.n_splits, args.features)
-    log_name = log_name + "date{}.txt".format(time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime()))
     if not args.evaluate:
-        sys.stdout = Logger(osp.join(args.logs_dir, log_name))
+        sys.stdout = Logger(osp.join(args.logs_dir, 'log.txt'))
     print('log_dir=', args.logs_dir)
 
     # Print logs
@@ -117,7 +109,7 @@ def main(args):
     query_loader, gallery_loader = get_data(args.data_dir, args.source,
                                             args.target, args.height,
                                             args.width, args.batch_size,
-                                            args.re, args.workers, C=args.C)
+                                            args.re, args.workers)
 
     # Create model
     model = models.create(args.arch, num_features=args.features,
@@ -127,7 +119,8 @@ def main(args):
     num_tgt = len(dataset.target_train)
     model_inv = InvNet(args.features, num_tgt,
                         beta=args.inv_beta, knn=args.knn,
-                        alpha=args.inv_alpha, n_splits=args.n_splits, N=args.N)
+                        alpha=args.inv_alpha, n_splits=args.n_splits,
+                        ul_alpha=args.ul_alpha,ul_beta=args.ul_beta)
 
     # Load from checkpoint
     start_epoch = 0
@@ -168,7 +161,7 @@ def main(args):
                                 nesterov=True)
 
     # Trainer
-    trainer = Trainer(model, model_inv, lmd=args.lmd, n_splits=args.n_splits, adjustment=args.adjustment, num_classes=num_classes, num_features=args.features, E=args.E)
+    trainer = Trainer(model, model_inv, lmd=args.lmd, n_splits=args.n_splits, adjustment=args.adjustment, num_classes=num_classes, num_features=args.features)
 
     # Schedule learning rate
     def adjust_lr(epoch):
@@ -180,7 +173,7 @@ def main(args):
     # Start training
     for epoch in range(start_epoch, args.epochs):
         adjust_lr(epoch)
-        trainer.train(epoch, source_train_loader, target_train_loader, optimizer)
+        trainer.train(epoch, source_train_loader, target_train_loader, optimizer=optimizer)
 
         save_checkpoint({
             'state_dict': model.module.state_dict(),
@@ -191,27 +184,27 @@ def main(args):
         # print('\n * Finished epoch {:3d} \n'.
         #       format(epoch))
         # if epoch % 10 == 0 and epoch != 0:
-        if epoch >= args.epochs - 10:
-            print('Test in epoch', epoch, ':')
-            evaluator = Evaluator(model)
-            evaluator.evaluate(query_loader, gallery_loader, dataset.query,
-                               dataset.gallery, args.output_feature)
+        # if epoch >= args.epochs - 1:
+        #     print('Test in epoch', epoch, ':')
+        #     evaluator = Evaluator(model)
+        #     evaluator.evaluate(query_loader, gallery_loader, dataset.query,
+        #                        dataset.gallery, args.output_feature)
 
     # Final test
-    # print('Test with best model:')
-    # evaluator = Evaluator(model)
-    # evaluator.evaluate(query_loader, gallery_loader, dataset.query,
-    #                    dataset.gallery, args.output_feature)
+    print('Test with best model:')
+    evaluator = Evaluator(model)
+    evaluator.evaluate(query_loader, gallery_loader, dataset.query,
+                       dataset.gallery, args.output_feature)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Invariance Learning for Domain Adaptive Re-ID")
     # source
     parser.add_argument('-s', '--source', type=str, default='duke',
-                        choices=['market', 'duke', 'msmt17'])
+                        choices=['market', 'duke', 'msmt17', 'cuhk03'])
     # target
     parser.add_argument('-t', '--target', type=str, default='market',
-                        choices=['market', 'duke', 'msmt17'])
+                        choices=['market', 'duke', 'msmt17', 'cuhk03'])
 
     parser.add_argument('--gpus', type=str, help='gpus')
     # imgs setting
@@ -255,18 +248,18 @@ if __name__ == '__main__':
                         help='update rate for the exemplar memory in invariance learning')
     parser.add_argument('--inv-beta', type=float, default=0.05,
                         help='The temperature in invariance learning')
-    parser.add_argument('--knn', default=6, type=int,
+    parser.add_argument('--knn', default=10, type=int,
                         help='number of KNN for neighborhood invariance')
-    parser.add_argument('--lmd', type=float, default=0.8,
+    parser.add_argument('--lmd', type=float, default=0.5,
                         help='weight controls the importance of the source loss and the target loss.')
     parser.add_argument('--n_splits', default=8, type=int,
                         help='把 feature 分成 n_split 层')
     parser.add_argument('--adjustment', default='feature-wise', type=str,
                         help='调整方式')
-
-    parser.add_argument('--E', action='store_true', default=False, help='close Exemplar-invariance')
-    parser.add_argument('--C', action='store_true', default=False, help='close Camera-invariance')
-    parser.add_argument('--N', action='store_true', default=False, help='close Neighborhood-invariance')
+    parser.add_argument('--ul-alpha', default=0.05, type=float,
+                        help='unloss-alpha')
+    parser.add_argument('--ul-beta', default=1.0, type=float,
+                        help='unloss-beta')
 
     args = parser.parse_args()
     main(args)
